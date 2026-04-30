@@ -340,12 +340,20 @@ class DeveloperExperienceTests {
             provider,
             initialContext = ImmutableContext("first")
         )
+
+        // runTest skips Dispatchers.Default (shared observe upstream)
+
+        testScheduler.advanceUntilIdle()
+        flushDispatchersDefault()
         // emits ProviderStale + ProviderStale + ProviderStale
         OpenFeatureAPI.getClient().track("hello-world")
+        testScheduler.advanceUntilIdle()
+        flushDispatchersDefault()
 
         // emits ProviderStale + ProviderConfigurationChanged
         OpenFeatureAPI.setEvaluationContextAndWait(ImmutableContext("second"))
         testScheduler.advanceUntilIdle()
+        flushDispatchersDefault()
 
         OpenFeatureAPI.shutdown()
         job.cancelAndJoin()

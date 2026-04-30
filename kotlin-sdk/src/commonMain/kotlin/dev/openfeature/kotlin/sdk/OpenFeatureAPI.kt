@@ -14,12 +14,15 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.shareIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.PublishedApi
 
 @Suppress("TooManyFunctions")
 object OpenFeatureAPI {
@@ -32,6 +35,16 @@ object OpenFeatureAPI {
     private var provider: FeatureProvider = NOOP_PROVIDER
     private var context: EvaluationContext? = null
     val providersFlow: MutableStateFlow<FeatureProvider> = MutableStateFlow(NOOP_PROVIDER)
+
+    /** Scope for the shared `shareIn` upstream over [providersFlow] (see [observe]). */
+    private val providerEventsScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    @PublishedApi
+    @OptIn(ExperimentalCoroutinesApi::class)
+    internal val sharedProviderEvents =
+        providersFlow
+            .flatMapLatest { it.observe() }
+            .shareIn(providerEventsScope, SharingStarted.WhileSubscribed(stopTimeoutMillis = 5_000L), replay = 0)
 
     private val _statusFlow: MutableSharedFlow<OpenFeatureStatus> =
         MutableSharedFlow<OpenFeatureStatus>(replay = 1, extraBufferCapacity = 5)
@@ -263,9 +276,8 @@ object OpenFeatureAPI {
     /**
      * Observe events of type [T] from the currently configured [FeatureProvider].
      */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    inline fun <reified T : OpenFeatureProviderEvents> observe(): Flow<T> = providersFlow
-        .flatMapLatest { it.observe() }.filterIsInstance()
+    inline fun <reified T : OpenFeatureProviderEvents> observe(): Flow<T> =
+        sharedProviderEvents.filterIsInstance()
 
     /**
      * Aligning the state management to
